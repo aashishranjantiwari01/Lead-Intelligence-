@@ -10,7 +10,8 @@ const PRIVATE_IP_PATTERNS = [
   /^10\.\d+\.\d+\.\d+$/,
   /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/,
   /^192\.168\.\d+\.\d+$/,
-  /^::1$/,
+  /^::1$/,             // IPv6 loopback (raw)
+  /^\[::1\]$/,         // IPv6 loopback (bracketed — as returned by new URL())
   /^0\.0\.0\.0$/,
   /^169\.254\.\d+\.\d+$/, // link-local
   /^metadata\.google\.internal$/i,

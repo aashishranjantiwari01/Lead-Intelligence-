@@ -128,6 +128,14 @@ export class LeadRepository {
     if (filters.has_instagram) {
       conditions.push('instagram IS NOT NULL AND instagram != ""');
     }
+    // has_website=false → leads with no website URL (NULL or empty string)
+    // has_website=true  → leads that have a website URL
+    // NOTE: this checks the actual lead.website field, NOT the audit/website_status
+    if (filters.has_website === false) {
+      conditions.push("(website IS NULL OR website = '')");
+    } else if (filters.has_website === true) {
+      conditions.push("website IS NOT NULL AND website != ''");
+    }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 

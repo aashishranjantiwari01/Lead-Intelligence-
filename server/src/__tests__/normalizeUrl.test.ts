@@ -57,6 +57,21 @@ describe('normalizeUrl', () => {
   it('returns null for AWS metadata endpoint (SSRF protection)', () => {
     expect(normalizeUrl('http://169.254.169.254/metadata')).toBeNull()
   })
+
+  // Fix #3: sample CSV invalid URL test data
+  // Old value 'not-a-valid-url' was silently accepted (normalized to https://not-a-valid-url)
+  it('OLD sample CSV value "not-a-valid-url" is NOT rejected — documents pre-fix bug', () => {
+    // This is why the sample data needed to be changed
+    expect(normalizeUrl('not-a-valid-url')).not.toBeNull() // incorrectly accepted
+  })
+
+  it('returns null for "http://" (new sample CSV invalid value) — scheme with no host is invalid', () => {
+    expect(normalizeUrl('http://')).toBeNull()
+  })
+
+  it('returns null for "https://" — same rule applies to https scheme only', () => {
+    expect(normalizeUrl('https://')).toBeNull()
+  })
 })
 
 describe('extractDomain', () => {
@@ -113,6 +128,10 @@ describe('isPrivateHost', () => {
 
   it('identifies IPv6 loopback ::1', () => {
     expect(isPrivateHost('::1')).toBe(true)
+  })
+
+  it('identifies IPv6 loopback [::1] (bracketed — as returned by new URL())', () => {
+    expect(isPrivateHost('[::1]')).toBe(true)
   })
 
   it('does not flag public domains', () => {

@@ -30,6 +30,9 @@ export default function LeadsPage() {
     country: searchParams.get('country') || undefined,
     has_email: searchParams.get('has_email') === 'true' ? true : undefined,
     has_phone: searchParams.get('has_phone') === 'true' ? true : undefined,
+    has_website: searchParams.get('has_website') === 'false' ? false
+      : searchParams.get('has_website') === 'true' ? true
+      : undefined,
     sort_by: sortBy,
     sort_order: sortOrder,
   }

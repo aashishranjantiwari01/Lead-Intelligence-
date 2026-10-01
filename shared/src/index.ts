@@ -337,6 +337,7 @@ export interface LeadFilters {
   has_email?: boolean;
   has_phone?: boolean;
   has_instagram?: boolean;
+  has_website?: boolean;
   sort_by?: 'lead_score' | 'business_name' | 'created_at' | 'last_audited_at';
   sort_order?: 'asc' | 'desc';
   page?: number;

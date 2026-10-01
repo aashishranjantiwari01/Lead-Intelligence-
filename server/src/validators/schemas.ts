@@ -58,6 +58,7 @@ export const LeadFiltersSchema = z.object({
   has_email: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
   has_phone: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
   has_instagram: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
+  has_website: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
   sort_by: z.enum(['lead_score', 'business_name', 'created_at', 'last_audited_at']).optional(),
   sort_order: z.enum(['asc', 'desc']).optional(),
   page: z.coerce.number().min(1).optional(),

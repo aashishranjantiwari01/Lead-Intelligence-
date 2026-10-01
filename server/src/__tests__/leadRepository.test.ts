@@ -218,3 +218,76 @@ describe('LeadRepository.getDashboardStats — automation opportunities', () => 
   })
 })
 
+// ────────────────────────────────────────────────────────────────────────────
+// Fix #2 spec — has_website filter checks actual lead.website field, NOT audit
+// ────────────────────────────────────────────────────────────────────────────
+describe('LeadRepository.findAll — has_website filter', () => {
+  let db: Database.Database
+
+  beforeEach(() => {
+    db = setupInMemoryDb()
+    runMigrations()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    db.close()
+  })
+
+  it('includes leads with NULL website when has_website=false', () => {
+    const repo = new LeadRepository()
+    repo.create({ business_name: 'Lead A', normalized_name: 'lead a' }) // website = null by default
+
+    const result = repo.findAll({ has_website: false })
+    expect(result.leads).toHaveLength(1)
+    expect(result.leads[0].business_name).toBe('Lead A')
+  })
+
+  it('includes leads with empty-string website when has_website=false', () => {
+    const repo = new LeadRepository()
+    repo.create({ business_name: 'Lead B', normalized_name: 'lead b', website: '' })
+
+    const result = repo.findAll({ has_website: false })
+    expect(result.leads).toHaveLength(1)
+    expect(result.leads[0].business_name).toBe('Lead B')
+  })
+
+  it('does NOT include a lead that has a website URL even if audit status is UNCHECKED', () => {
+    // Lead C: has a website, website_status defaults to UNCHECKED (never audited)
+    // UNCHECKED does NOT mean "missing website" — the fix must exclude this lead
+    const repo = new LeadRepository()
+    repo.create({
+      business_name: 'Lead C',
+      normalized_name: 'lead c',
+      website: 'https://example.com',
+      // website_status is UNCHECKED by default — not yet audited
+    })
+
+    const result = repo.findAll({ has_website: false })
+    expect(result.leads).toHaveLength(0) // Lead C must NOT appear
+  })
+
+  it('only returns leads without websites when mixed', () => {
+    const repo = new LeadRepository()
+    repo.create({ business_name: 'Lead A (null)', normalized_name: 'lead a null' })
+    repo.create({ business_name: 'Lead B (empty)', normalized_name: 'lead b empty', website: '' })
+    repo.create({ business_name: 'Lead C (has website)', normalized_name: 'lead c', website: 'https://example.com' })
+
+    const result = repo.findAll({ has_website: false })
+    expect(result.total).toBe(2)
+    const names = result.leads.map(l => l.business_name)
+    expect(names).toContain('Lead A (null)')
+    expect(names).toContain('Lead B (empty)')
+    expect(names).not.toContain('Lead C (has website)')
+  })
+
+  it('returns only leads WITH websites when has_website=true', () => {
+    const repo = new LeadRepository()
+    repo.create({ business_name: 'No Website', normalized_name: 'no website' })
+    repo.create({ business_name: 'Has Website', normalized_name: 'has website', website: 'https://example.com' })
+
+    const result = repo.findAll({ has_website: true })
+    expect(result.total).toBe(1)
+    expect(result.leads[0].business_name).toBe('Has Website')
+  })
+})

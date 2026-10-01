@@ -95,6 +95,26 @@ async function checkWebsite(url: string): Promise<CheckResult> {
   let https_enabled = url.startsWith('https://');
 
   try {
+    // SSRF protection: intercept ALL requests (including redirect destinations)
+    // so we block private hosts BEFORE the TCP connection is opened.
+    await page.route('**/*', async (route) => {
+      const requestUrl = route.request().url();
+      try {
+        const reqParsed = new URL(requestUrl);
+        if (isPrivateHost(reqParsed.hostname)) {
+          // Abort immediately — never send this request
+          await route.abort('accessdenied');
+          return;
+        }
+      } catch {
+        // Unparseable URL — abort to be safe
+        await route.abort('failed');
+        return;
+      }
+      // Destination is public — allow the request to proceed
+      await route.continue();
+    });
+
     // Navigate with timeout
     const response = await page.goto(url, {
       timeout: config.auditTimeoutMs,

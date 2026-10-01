@@ -171,7 +171,7 @@ export default function Dashboard() {
           icon={Globe}
           iconColor="bg-red-500/20 text-red-400"
           description="High opportunity leads"
-          link="/leads?website_status=UNCHECKED"
+          link="/leads?has_website=false"
         />
         <StatCard
           title="Unreachable Sites"
