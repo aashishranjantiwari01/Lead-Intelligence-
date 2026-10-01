@@ -4,23 +4,11 @@
  * www consistency, and preserving meaningful paths.
  */
 
-const PRIVATE_IP_PATTERNS = [
-  /^localhost$/i,
-  /^127\.\d+\.\d+\.\d+$/,
-  /^10\.\d+\.\d+\.\d+$/,
-  /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/,
-  /^192\.168\.\d+\.\d+$/,
-  /^::1$/,             // IPv6 loopback (raw)
-  /^\[::1\]$/,         // IPv6 loopback (bracketed — as returned by new URL())
-  /^0\.0\.0\.0$/,
-  /^169\.254\.\d+\.\d+$/, // link-local
-  /^metadata\.google\.internal$/i,
-  /^169\.254\.169\.254$/, // AWS metadata
-];
+// Re-export the canonical SSRF host-classification from ssrfGuard.
+// ssrfGuard.ts is the ONE source of truth for private-host detection.
+export { isPrivateHost, isPrivateIp } from './ssrfGuard';
+import { isPrivateHost } from './ssrfGuard';
 
-export function isPrivateHost(hostname: string): boolean {
-  return PRIVATE_IP_PATTERNS.some(p => p.test(hostname));
-}
 
 export function normalizeUrl(rawUrl: string | null | undefined): string | null {
   if (!rawUrl || typeof rawUrl !== 'string') return null;

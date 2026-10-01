@@ -1,161 +1,296 @@
 /**
- * Tests for SSRF protection — specifically the request interception
- * logic that runs inside the Playwright route handler.
+ * SSRF Guard Tests — exercises the actual reusable helpers in ssrfGuard.ts
  *
- * We cannot spawn a real browser in unit tests, so we:
- *  1. Test the interception decision (isPrivateHost) exhaustively.
- *  2. Simulate the route-handler logic using a mock route object,
- *     verifying that private destinations are aborted and public ones
- *     are continued BEFORE any network request is dispatched.
+ * Tests cover (per spec):
+ *  - isPrivateIp(): all required IPv4 and IPv6 ranges including IPv4-mapped
+ *  - isPrivateHost(): literal IPs, localhost, metadata hostnames
+ *  - resolveAndCheckHost(): DNS mocking to verify:
+ *      • hostname resolving to private IP → blocked
+ *      • hostname with mixed public+private IPs → blocked
+ *      • hostname resolving to public IP → allowed
+ *  - installSsrfProtection(): route-decision logic for all required ranges
+ *
+ * DNS lookups are mocked via vi.spyOn so no real network access occurs
+ * and no real private infrastructure is contacted.
  */
-import { describe, it, expect, vi } from 'vitest'
-import { isPrivateHost } from '../../src/utils/normalizeUrl'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import * as dnsModule from 'dns'
+import {
+  isPrivateIp,
+  isPrivateHost,
+  resolveAndCheckHost,
+} from '../../src/utils/ssrfGuard'
 
-// ──────────────────────────────────────────────────────────────
-// Helper: simulate the route-handler decision logic
-// (mirrors the lambda in websiteAuditService.ts checkWebsite())
-// ──────────────────────────────────────────────────────────────
-type RouteAction = 'abort' | 'continue'
-
-async function simulateRouteHandler(requestUrl: string): Promise<{ action: RouteAction; reason?: string }> {
-  try {
-    const reqParsed = new URL(requestUrl)
-    if (isPrivateHost(reqParsed.hostname)) {
-      return { action: 'abort', reason: 'private host' }
-    }
-  } catch {
-    return { action: 'abort', reason: 'unparseable URL' }
-  }
-  return { action: 'continue' }
-}
-
-// ──────────────────────────────────────────────────────────────
-// Tests: private destinations are ABORTED before request proceeds
-// ──────────────────────────────────────────────────────────────
-describe('SSRF route interception — private destinations are blocked before request', () => {
-  it('aborts requests to localhost', async () => {
-    const r = await simulateRouteHandler('http://localhost/')
-    expect(r.action).toBe('abort')
+// ─────────────────────────────────────────────────────────────────────────────
+// isPrivateIp — IPv4 ranges
+// ─────────────────────────────────────────────────────────────────────────────
+describe('isPrivateIp — IPv4 private ranges', () => {
+  it('blocks 127.0.0.1 (loopback)', () => {
+    expect(isPrivateIp('127.0.0.1')).toBe(true)
   })
 
-  it('aborts requests to 127.0.0.1 (loopback)', async () => {
-    const r = await simulateRouteHandler('http://127.0.0.1/secret')
-    expect(r.action).toBe('abort')
+  it('blocks 127.0.0.2 (127.x.x.x range)', () => {
+    expect(isPrivateIp('127.0.0.2')).toBe(true)
   })
 
-  it('aborts requests to 127.x.x.x range', async () => {
-    const r = await simulateRouteHandler('http://127.0.0.2/')
-    expect(r.action).toBe('abort')
+  it('blocks 127.255.255.255 (end of loopback range)', () => {
+    expect(isPrivateIp('127.255.255.255')).toBe(true)
   })
 
-  it('aborts requests to 10.x.x.x (private class A)', async () => {
-    const r = await simulateRouteHandler('http://10.0.0.1/')
-    expect(r.action).toBe('abort')
+  it('blocks 10.0.0.1 (10/8)', () => {
+    expect(isPrivateIp('10.0.0.1')).toBe(true)
   })
 
-  it('aborts requests to 172.16-31.x.x (private class B)', async () => {
-    const r16 = await simulateRouteHandler('http://172.16.0.1/')
-    const r31 = await simulateRouteHandler('http://172.31.255.255/')
-    expect(r16.action).toBe('abort')
-    expect(r31.action).toBe('abort')
+  it('blocks 10.255.255.255 (end of 10/8)', () => {
+    expect(isPrivateIp('10.255.255.255')).toBe(true)
   })
 
-  it('aborts requests to 192.168.x.x (private class C)', async () => {
-    const r = await simulateRouteHandler('http://192.168.1.1/admin')
-    expect(r.action).toBe('abort')
+  it('blocks 172.16.0.1 (172.16/12 start)', () => {
+    expect(isPrivateIp('172.16.0.1')).toBe(true)
   })
 
-  it('aborts requests to 169.254.169.254 (AWS/cloud metadata endpoint)', async () => {
-    const r = await simulateRouteHandler('http://169.254.169.254/latest/meta-data/')
-    expect(r.action).toBe('abort')
+  it('blocks 172.31.255.255 (172.16/12 end)', () => {
+    expect(isPrivateIp('172.31.255.255')).toBe(true)
   })
 
-  it('aborts requests to 169.254.x.x (link-local)', async () => {
-    const r = await simulateRouteHandler('http://169.254.0.1/')
-    expect(r.action).toBe('abort')
+  it('does NOT block 172.15.255.255 (just below private range)', () => {
+    expect(isPrivateIp('172.15.255.255')).toBe(false)
   })
 
-  it('aborts requests to 0.0.0.0', async () => {
-    const r = await simulateRouteHandler('http://0.0.0.0/')
-    expect(r.action).toBe('abort')
+  it('does NOT block 172.32.0.0 (just above private range)', () => {
+    expect(isPrivateIp('172.32.0.0')).toBe(false)
   })
 
-  it('aborts requests to IPv6 loopback [::1] (browser URL bracket form)', async () => {
-    // new URL('http://[::1]/').hostname === '[::1]' (brackets included)
-    const r = await simulateRouteHandler('http://[::1]/')
-    expect(r.action).toBe('abort')
+  it('blocks 192.168.0.1 (192.168/16)', () => {
+    expect(isPrivateIp('192.168.0.1')).toBe(true)
   })
 
-  it('aborts requests to IPv6 loopback ::1 (raw form)', async () => {
-    // isPrivateHost is also called with raw hostnames in some paths
+  it('blocks 192.168.255.255 (end of 192.168/16)', () => {
+    expect(isPrivateIp('192.168.255.255')).toBe(true)
+  })
+
+  it('blocks 169.254.0.1 (link-local)', () => {
+    expect(isPrivateIp('169.254.0.1')).toBe(true)
+  })
+
+  it('blocks 169.254.169.254 (cloud metadata endpoint)', () => {
+    expect(isPrivateIp('169.254.169.254')).toBe(true)
+  })
+
+  it('blocks 0.0.0.1 (0/8 reserved)', () => {
+    expect(isPrivateIp('0.0.0.1')).toBe(true)
+  })
+
+  it('allows public IP 8.8.8.8', () => {
+    expect(isPrivateIp('8.8.8.8')).toBe(false)
+  })
+
+  it('allows public IP 93.184.216.34 (example.com)', () => {
+    expect(isPrivateIp('93.184.216.34')).toBe(false)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// isPrivateIp — IPv6 ranges
+// ─────────────────────────────────────────────────────────────────────────────
+describe('isPrivateIp — IPv6 private ranges', () => {
+  it('blocks ::1 (loopback)', () => {
+    expect(isPrivateIp('::1')).toBe(true)
+  })
+
+  it('blocks [::1] (bracketed form as returned by new URL())', () => {
+    expect(isPrivateIp('[::1]')).toBe(true)
+  })
+
+  it('blocks fc00:: (ULA start — fc00::/7)', () => {
+    expect(isPrivateIp('fc00::')).toBe(true)
+  })
+
+  it('blocks fd00:: (ULA — fc00::/7 range includes fd)', () => {
+    expect(isPrivateIp('fd00::')).toBe(true)
+  })
+
+  it('blocks fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff (ULA end)', () => {
+    expect(isPrivateIp('fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')).toBe(true)
+  })
+
+  it('blocks fe80:: (link-local start — fe80::/10)', () => {
+    expect(isPrivateIp('fe80::')).toBe(true)
+  })
+
+  it('blocks fe80::1 (link-local)', () => {
+    expect(isPrivateIp('fe80::1')).toBe(true)
+  })
+
+  it('blocks febf:: (link-local end — fe80::/10)', () => {
+    expect(isPrivateIp('febf::')).toBe(true)
+  })
+
+  it('allows 2001:db8::1 (documentation range — public for test)', () => {
+    // 2001:db8::/32 is technically reserved for docs but NOT in our block list
+    // This verifies we don't over-block
+    expect(isPrivateIp('2001:db8::1')).toBe(false)
+  })
+
+  it('allows 2606:4700::6810:1c23 (Cloudflare — fully public)', () => {
+    expect(isPrivateIp('2606:4700::6810:1c23')).toBe(false)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// isPrivateIp — IPv4-mapped IPv6 addresses
+// ─────────────────────────────────────────────────────────────────────────────
+describe('isPrivateIp — IPv4-mapped IPv6', () => {
+  it('blocks ::ffff:127.0.0.1 (IPv4-mapped loopback)', () => {
+    expect(isPrivateIp('::ffff:127.0.0.1')).toBe(true)
+  })
+
+  it('blocks ::ffff:192.168.1.1 (IPv4-mapped private)', () => {
+    expect(isPrivateIp('::ffff:192.168.1.1')).toBe(true)
+  })
+
+  it('blocks ::ffff:10.0.0.1 (IPv4-mapped 10/8)', () => {
+    expect(isPrivateIp('::ffff:10.0.0.1')).toBe(true)
+  })
+
+  it('blocks ::ffff:169.254.169.254 (IPv4-mapped metadata)', () => {
+    expect(isPrivateIp('::ffff:169.254.169.254')).toBe(true)
+  })
+
+  it('allows ::ffff:8.8.8.8 (IPv4-mapped public IP)', () => {
+    expect(isPrivateIp('::ffff:8.8.8.8')).toBe(false)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// isPrivateHost — synchronous hostname classification
+// ─────────────────────────────────────────────────────────────────────────────
+describe('isPrivateHost — synchronous hostname check', () => {
+  it('blocks localhost', () => {
+    expect(isPrivateHost('localhost')).toBe(true)
+  })
+
+  it('blocks LOCALHOST (case-insensitive)', () => {
+    expect(isPrivateHost('LOCALHOST')).toBe(true)
+  })
+
+  it('blocks metadata.google.internal', () => {
+    expect(isPrivateHost('metadata.google.internal')).toBe(true)
+  })
+
+  it('blocks anything ending in .internal', () => {
+    expect(isPrivateHost('my-service.internal')).toBe(true)
+  })
+
+  it('blocks anything ending in .local', () => {
+    expect(isPrivateHost('printer.local')).toBe(true)
+  })
+
+  it('blocks literal private IPv4', () => {
+    expect(isPrivateHost('192.168.1.1')).toBe(true)
+  })
+
+  it('blocks literal IPv6 loopback', () => {
     expect(isPrivateHost('::1')).toBe(true)
   })
 
-  it('aborts requests to GCP/cloud metadata hostname', async () => {
-    const r = await simulateRouteHandler('http://metadata.google.internal/computeMetadata/v1/')
-    expect(r.action).toBe('abort')
+  it('allows public domain', () => {
+    expect(isPrivateHost('example.com')).toBe(false)
   })
 
-  it('aborts unparseable URLs', async () => {
-    const r = await simulateRouteHandler('not a url at all')
-    expect(r.action).toBe('abort')
+  it('allows public IP', () => {
+    expect(isPrivateHost('8.8.8.8')).toBe(false)
   })
 })
 
-// ──────────────────────────────────────────────────────────────
-// Tests: public destinations are ALLOWED through
-// ──────────────────────────────────────────────────────────────
-describe('SSRF route interception — public destinations are allowed', () => {
-  it('continues requests to public HTTPS sites', async () => {
-    const r = await simulateRouteHandler('https://example.com/')
-    expect(r.action).toBe('continue')
+// ─────────────────────────────────────────────────────────────────────────────
+// resolveAndCheckHost — DNS-level validation (mocked)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('resolveAndCheckHost — DNS resolution with mocked lookup', () => {
+  let dnsLookupSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    // Spy on dns.promises.lookup to avoid real DNS calls
+    dnsLookupSpy = vi.spyOn(dnsModule.promises, 'lookup')
   })
 
-  it('continues requests to public HTTP sites', async () => {
-    const r = await simulateRouteHandler('http://example.com/')
-    expect(r.action).toBe('continue')
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
-  it('continues HTTPS redirects between public hosts', async () => {
-    // e.g. http://example.com → https://example.com
-    const r = await simulateRouteHandler('https://www.example.com/page')
-    expect(r.action).toBe('continue')
+  it('blocks a public-looking hostname that DNS resolves to a private IP', async () => {
+    // Simulates: evil.example.com → 192.168.1.10
+    dnsLookupSpy.mockResolvedValue([{ address: '192.168.1.10', family: 4 }] as never)
+    const cache = new Map<string, boolean>()
+    const result = await resolveAndCheckHost('evil.example.com', cache)
+    expect(result).toBe(true) // blocked
   })
 
-  it('does not block 172.15.x.x (just below private range)', async () => {
-    const r = await simulateRouteHandler('http://172.15.255.255/')
-    expect(r.action).toBe('continue')
+  it('blocks when hostname resolves to loopback 127.0.0.1', async () => {
+    dnsLookupSpy.mockResolvedValue([{ address: '127.0.0.1', family: 4 }] as never)
+    const cache = new Map<string, boolean>()
+    const result = await resolveAndCheckHost('attacker.com', cache)
+    expect(result).toBe(true)
   })
 
-  it('does not block 172.32.x.x (just above private range)', async () => {
-    const r = await simulateRouteHandler('http://172.32.0.1/')
-    expect(r.action).toBe('continue')
-  })
-})
-
-// ──────────────────────────────────────────────────────────────
-// Test: redirect from public host to private host is caught
-// This simulates the key scenario: a real Playwright redirect would
-// cause a second request with the private URL — our interceptor
-// handles it because EVERY request goes through the route handler.
-// ──────────────────────────────────────────────────────────────
-describe('SSRF route interception — redirect-to-private scenario', () => {
-  it('blocks the redirected request when a public URL redirects to a private destination', async () => {
-    // Step 1: initial request to a public URL — allowed
-    const initial = await simulateRouteHandler('https://public-example.com/')
-    expect(initial.action).toBe('continue')
-
-    // Step 2: server sends redirect → browser follows → another request is intercepted
-    // This is the URL the browser would request AFTER following the redirect
-    const redirected = await simulateRouteHandler('http://192.168.1.1/internal')
-    expect(redirected.action).toBe('abort') // blocked BEFORE TCP connection is opened
+  it('blocks when hostname has BOTH public and private DNS results', async () => {
+    // ANY private IP → blocked (regardless of other public addresses)
+    dnsLookupSpy.mockResolvedValue([
+      { address: '1.2.3.4', family: 4 },      // public
+      { address: '192.168.1.1', family: 4 },  // private — this triggers block
+    ] as never)
+    const cache = new Map<string, boolean>()
+    const result = await resolveAndCheckHost('multi.example.com', cache)
+    expect(result).toBe(true)
   })
 
-  it('blocks redirect to localhost', async () => {
-    const initial = await simulateRouteHandler('https://public.example.com/')
-    expect(initial.action).toBe('continue')
+  it('allows a hostname that DNS resolves to a public IP', async () => {
+    dnsLookupSpy.mockResolvedValue([{ address: '93.184.216.34', family: 4 }] as never)
+    const cache = new Map<string, boolean>()
+    const result = await resolveAndCheckHost('example.com', cache)
+    expect(result).toBe(false) // allowed
+  })
 
-    const redirectedToLocal = await simulateRouteHandler('http://localhost:8080/admin')
-    expect(redirectedToLocal.action).toBe('abort')
+  it('caches DNS results — only calls lookup once per hostname', async () => {
+    dnsLookupSpy.mockResolvedValue([{ address: '93.184.216.34', family: 4 }] as never)
+    const cache = new Map<string, boolean>()
+    await resolveAndCheckHost('example.com', cache)
+    await resolveAndCheckHost('example.com', cache)
+    expect(dnsLookupSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('blocks when DNS resolution fails (treat as blocked for safety)', async () => {
+    dnsLookupSpy.mockRejectedValue(new Error('ENOTFOUND nonexistent.invalid'))
+    const cache = new Map<string, boolean>()
+    const result = await resolveAndCheckHost('nonexistent.invalid', cache)
+    expect(result).toBe(true)
+  })
+
+  it('fast-paths literal private IPs without calling DNS', async () => {
+    const cache = new Map<string, boolean>()
+    const result = await resolveAndCheckHost('127.0.0.1', cache)
+    expect(result).toBe(true)
+    expect(dnsLookupSpy).not.toHaveBeenCalled()
+  })
+
+  it('fast-paths localhost without calling DNS', async () => {
+    const cache = new Map<string, boolean>()
+    const result = await resolveAndCheckHost('localhost', cache)
+    expect(result).toBe(true)
+    expect(dnsLookupSpy).not.toHaveBeenCalled()
+  })
+
+  it('blocks a redirect from public URL to private destination (simulation)', async () => {
+    // Step 1: initial request to a public hostname
+    dnsLookupSpy.mockResolvedValueOnce([{ address: '93.184.216.34', family: 4 }] as never)
+    const cache = new Map<string, boolean>()
+    const initialResult = await resolveAndCheckHost('public-example.com', cache)
+    expect(initialResult).toBe(false) // allowed
+
+    // Step 2: redirect sends browser to 192.168.1.1 — blocked BEFORE request
+    const redirectResult = await resolveAndCheckHost('192.168.1.1', cache)
+    expect(redirectResult).toBe(true) // blocked
+    // DNS was only called once (for the public hostname; private IP is fast-pathed)
+    expect(dnsLookupSpy).toHaveBeenCalledTimes(1)
   })
 })

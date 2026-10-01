@@ -110,6 +110,23 @@ export class CsvImportService {
 
       const data = parsed.data;
 
+      // Fix #2: validate the website URL during preview.
+      // normalizeUrl() returns null for malformed URLs (e.g. "http://", bare schemes,
+      // private/internal hosts, or genuinely unparseable values).
+      // An empty website is fine — many leads have no website yet.
+      if (data.website?.trim()) {
+        const normalized = normalizeUrl(data.website);
+        if (!normalized) {
+          rows.push({
+            row_number: i + 2,
+            data: mapped,
+            status: 'INVALID',
+            reason: 'Invalid website URL',
+          });
+          continue;
+        }
+      }
+
       // Check for intra-CSV duplicate
       const nName = normalizeName(data.business_name);
       const city = (data.city || '').toLowerCase().trim();

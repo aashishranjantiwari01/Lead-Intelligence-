@@ -1,5 +1,6 @@
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { chromium, type Browser, type BrowserContext } from 'playwright';
 import { isPrivateHost } from '../utils/normalizeUrl';
+import { installSsrfProtection } from '../utils/ssrfGuard';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { analyzeSeo } from '../analyzers/seoAnalyzer';
@@ -95,25 +96,10 @@ async function checkWebsite(url: string): Promise<CheckResult> {
   let https_enabled = url.startsWith('https://');
 
   try {
-    // SSRF protection: intercept ALL requests (including redirect destinations)
-    // so we block private hosts BEFORE the TCP connection is opened.
-    await page.route('**/*', async (route) => {
-      const requestUrl = route.request().url();
-      try {
-        const reqParsed = new URL(requestUrl);
-        if (isPrivateHost(reqParsed.hostname)) {
-          // Abort immediately — never send this request
-          await route.abort('accessdenied');
-          return;
-        }
-      } catch {
-        // Unparseable URL — abort to be safe
-        await route.abort('failed');
-        return;
-      }
-      // Destination is public — allow the request to proceed
-      await route.continue();
-    });
+    // SSRF protection: attach the canonical guard BEFORE any navigation.
+    // Every request (initial + redirect-followed sub-requests) is validated
+    // via DNS resolution against all private/internal IP ranges.
+    await installSsrfProtection(page);
 
     // Navigate with timeout
     const response = await page.goto(url, {
@@ -149,13 +135,21 @@ async function checkWebsite(url: string): Promise<CheckResult> {
 
     await context.close();
 
+    // Fix #3: only 2xx (and 304 Not Modified) are truly reachable.
+    // 4xx/5xx mean the server responded with an error — not reachable.
+    // Playwright returns the final status after following redirects, so
+    // a 3xx here would only appear for unusual non-redirect 3xx responses.
+    const status = httpStatus ?? 0;
+    const reachable = !!response && status >= 200 && status < 400;
+    const httpError = !!response && !reachable && status > 0;
+
     return {
-      reachable: !!response && (httpStatus ?? 0) < 500,
+      reachable,
       http_status: httpStatus,
       final_url: finalUrl,
       https_enabled,
-      error_type: null,
-      error_message: null,
+      error_type: httpError ? 'HTTP_ERROR' : null,
+      error_message: httpError ? `HTTP ${status}` : null,
       navigationStart,
       domContentLoaded,
     };
@@ -281,6 +275,11 @@ export async function runWebsiteAudit(lead: Lead): Promise<FullAuditResult> {
   let seoResult, perfResult, mobileResult, contactResult, bookingResult, socialResult, analyticsResult, techResult, a11yResult;
 
   try {
+    // Fix #1 (Part E): Protect the full audit context with the same SSRF guard
+    // that is applied in checkWebsite(). Without this, the second Playwright
+    // context could navigate to private destinations without interception.
+    await installSsrfProtection(page);
+
     await page.goto(finalUrl, { timeout: config.auditTimeoutMs, waitUntil: 'domcontentloaded' });
 
     // Run all analyzers in parallel where safe
