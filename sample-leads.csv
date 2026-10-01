@@ -1,0 +1,11 @@
+business_name,category,country,city,address,phone,email,website,instagram,facebook,linkedin,source,source_url
+Dental Smile Clinic,Dentist,Switzerland,Zurich,Bahnhofstrasse 10,+41441234567,info@dentalsmile-fictional.ch,https://dentalsmile-fictional.ch,https://instagram.com/dentalsmilefictional,,
+La Bella Pizzeria,Restaurant,Switzerland,Geneva,Rue du Rhône 42,+41221234567,info@labella-fictional.ch,https://labella-fictional.ch,,https://facebook.com/labellafictional,
+Fitnessclub Zürich,Fitness Studio,Switzerland,Zurich,Langstrasse 88,+41442223333,contact@fitnesszurich-fictional.ch,https://fitnesszurich-fictional.ch,https://instagram.com/fitnesszurichfictional,https://facebook.com/fitnesszurichfictional,
+Buchhandlung Müller,Bookstore,Germany,Munich,Kaufingerstraße 25,+4989123456,info@buchmueller-fictional.de,,,,
+Spa & Wellness Center,Spa,Switzerland,Bern,Marktgasse 15,+41313456789,booking@spabern-fictional.ch,https://spabern-fictional.ch,,,,
+Tech Solutions GmbH,IT Services,Austria,Vienna,Mariahilfer Straße 77,+4319876543,hello@techsolutions-fictional.at,https://techsolutions-fictional.at,,,https://linkedin.com/company/techsolutionsfictional
+Green Garden Café,Café,Switzerland,Lausanne,Place de la Riponne 5,+41211234567,cafe@greengarden-fictional.ch,,,,
+Dental Smile Clinic,Dentist,Switzerland,Zurich,Bahnhofstrasse 10,+41441234567,info@dentalsmile-fictional.ch,https://dentalsmile-fictional.ch,https://instagram.com/dentalsmilefictional,,,DUPLICATE ENTRY - same as row 2
+AutoHaus Schneider,Car Dealership,Switzerland,Basel,Elsässerstrasse 200,+41613334444,sales@autohaus-fictional.ch,not-a-valid-url,,,
+Mountain View Hotel,Hotel,Switzerland,Interlaken,Höheweg 55,+41338881234,reservations@mountainview-fictional.ch,https://mountainviewinterlaken-fictional.ch,https://instagram.com/mountainviewfictional,https://facebook.com/mountainviewfictional,https://linkedin.com/company/mountainviewfictional
