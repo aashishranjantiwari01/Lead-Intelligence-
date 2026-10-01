@@ -339,6 +339,8 @@ export interface LeadFilters {
   has_instagram?: boolean;
   sort_by?: 'lead_score' | 'business_name' | 'created_at' | 'last_audited_at';
   sort_order?: 'asc' | 'desc';
+  page?: number;
+  limit?: number;
 }
 
 export interface PaginatedLeads {

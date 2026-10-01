@@ -106,6 +106,27 @@ async function checkWebsite(url: string): Promise<CheckResult> {
     https_enabled = finalUrl.startsWith('https://');
     httpStatus = response?.status() ?? null;
 
+    // SSRF protection: re-validate final URL after redirects
+    // A redirect from a public URL to a private/internal host must be blocked
+    try {
+      const finalParsed = new URL(finalUrl);
+      if (isPrivateHost(finalParsed.hostname)) {
+        await context.close().catch(() => {});
+        return {
+          reachable: false,
+          http_status: null,
+          final_url: null,
+          https_enabled: false,
+          error_type: 'BLOCKED',
+          error_message: `Blocked: redirect destination is a private/internal host (${finalParsed.hostname})`,
+          navigationStart,
+          domContentLoaded: Date.now(),
+        };
+      }
+    } catch {
+      // If we can't parse the final URL, treat as safe and continue
+    }
+
     await context.close();
 
     return {

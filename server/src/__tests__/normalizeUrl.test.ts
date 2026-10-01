@@ -10,8 +10,8 @@ describe('normalizeUrl', () => {
     expect(normalizeUrl('https://example.com')).toBe('https://example.com')
   })
 
-  it('upgrades http:// to https://', () => {
-    expect(normalizeUrl('http://example.com')).toBe('https://example.com')
+  it('preserves existing http:// scheme (does NOT upgrade to https)', () => {
+    expect(normalizeUrl('http://example.com')).toBe('http://example.com')
   })
 
   it('removes trailing slash from root path', () => {
@@ -78,16 +78,47 @@ describe('isPrivateHost', () => {
     expect(isPrivateHost('localhost')).toBe(true)
   })
 
-  it('identifies 127.0.0.1', () => {
+  it('identifies 127.0.0.1 (loopback)', () => {
     expect(isPrivateHost('127.0.0.1')).toBe(true)
   })
 
-  it('identifies 192.168.x.x', () => {
+  it('identifies 0.0.0.0', () => {
+    expect(isPrivateHost('0.0.0.0')).toBe(true)
+  })
+
+  it('identifies 192.168.x.x (private)', () => {
     expect(isPrivateHost('192.168.1.100')).toBe(true)
+  })
+
+  it('identifies 10.x.x.x (private class A)', () => {
+    expect(isPrivateHost('10.42.0.1')).toBe(true)
+  })
+
+  it('identifies 172.16-31.x.x (private class B)', () => {
+    expect(isPrivateHost('172.16.0.1')).toBe(true)
+    expect(isPrivateHost('172.31.255.255')).toBe(true)
+  })
+
+  it('identifies 169.254.x.x (link-local)', () => {
+    expect(isPrivateHost('169.254.1.2')).toBe(true)
+  })
+
+  it('identifies AWS metadata endpoint 169.254.169.254', () => {
+    expect(isPrivateHost('169.254.169.254')).toBe(true)
+  })
+
+  it('identifies GCP/cloud metadata hostname', () => {
+    expect(isPrivateHost('metadata.google.internal')).toBe(true)
+  })
+
+  it('identifies IPv6 loopback ::1', () => {
+    expect(isPrivateHost('::1')).toBe(true)
   })
 
   it('does not flag public domains', () => {
     expect(isPrivateHost('example.com')).toBe(false)
     expect(isPrivateHost('google.com')).toBe(false)
+    expect(isPrivateHost('172.15.0.1')).toBe(false) // just outside private range
+    expect(isPrivateHost('172.32.0.1')).toBe(false) // just outside private range
   })
 })

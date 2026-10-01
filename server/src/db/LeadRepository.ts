@@ -142,9 +142,9 @@ export class LeadRepository {
     const safeSortColumn = validSortColumns.includes(sortColumn) ? sortColumn : 'created_at';
     const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
 
-    // Pagination
-    const page = Math.max(1, 1);
-    const limit = 100; // client provides pagination params via filters if needed
+    // Pagination — honor caller-supplied page and limit
+    const page = Math.max(1, filters.page ?? 1);
+    const limit = Math.min(500, Math.max(1, filters.limit ?? 100));
 
     const rows = db.prepare(
       `SELECT * FROM leads ${where} ORDER BY ${safeSortColumn} ${safeSortOrder} LIMIT ? OFFSET ?`
@@ -189,7 +189,7 @@ export class LeadRepository {
       source: data.source ?? null,
       source_url: data.source_url ?? null,
       lead_status: data.lead_status ?? 'NEW',
-      notes: null,
+      notes: data.notes ?? null,
     });
 
     const lead = this.findById(result.lastInsertRowid as number);
@@ -266,12 +266,28 @@ export class LeadRepository {
     const statusMap: Record<string, number> = {};
     byStatus.forEach(r => { statusMap[r.lead_status] = r.c; });
 
+    // Leads with no website URL (null or empty string) — NOT proxied by audit status
     const missingWebsite = (db.prepare("SELECT COUNT(*) as c FROM leads WHERE (website IS NULL OR website = '')").get() as { c: number }).c;
     const unreachable = (db.prepare("SELECT COUNT(*) as c FROM leads WHERE website_status = 'UNREACHABLE'").get() as { c: number }).c;
 
+    // Distinct leads that have at least one opportunity of any type in their audits
     const hasOpportunities = (db.prepare(`
-      SELECT COUNT(*) as c FROM website_audits 
+      SELECT COUNT(DISTINCT lead_id) as c FROM website_audits 
       WHERE opportunities_json != '[]' AND opportunities_json IS NOT NULL
+    `).get() as { c: number }).c;
+
+    // Distinct leads with at least one AUTOMATION-type opportunity
+    // (AUTOMATION, WHATSAPP, BOOKING, LEAD_CAPTURE)
+    // SQLite: JSON stored as text — we search for the type strings inside the JSON array
+    const automationOpportunities = (db.prepare(`
+      SELECT COUNT(DISTINCT lead_id) as c FROM website_audits
+      WHERE opportunities_json IS NOT NULL
+        AND (
+          opportunities_json LIKE '%"type":"AUTOMATION"%'
+          OR opportunities_json LIKE '%"type":"WHATSAPP"%'
+          OR opportunities_json LIKE '%"type":"BOOKING"%'
+          OR opportunities_json LIKE '%"type":"LEAD_CAPTURE"%'
+        )
     `).get() as { c: number }).c;
 
     const recentAudits = (db.prepare(`
@@ -287,7 +303,7 @@ export class LeadRepository {
       websites_missing: missingWebsite,
       websites_unreachable: unreachable,
       website_opportunities: hasOpportunities,
-      automation_opportunities: hasOpportunities, // refined once scoring is more granular
+      automation_opportunities: automationOpportunities,
       pipeline: {
         NEW: statusMap['NEW'] ?? 0,
         QUALIFIED: statusMap['QUALIFIED'] ?? 0,

@@ -334,9 +334,9 @@ function LeadRow({
       </td>
       <td>
         <div className="flex items-center gap-2">
-          {lead.email && <Mail className="w-3.5 h-3.5 text-slate-400" title={lead.email} />}
-          {lead.phone && <Phone className="w-3.5 h-3.5 text-slate-400" title={lead.phone} />}
-          {lead.instagram && <Instagram className="w-3.5 h-3.5 text-pink-400" title="Instagram" />}
+          {lead.email && <span title={lead.email}><Mail className="w-3.5 h-3.5 text-slate-400" /></span>}
+          {lead.phone && <span title={lead.phone}><Phone className="w-3.5 h-3.5 text-slate-400" /></span>}
+          {lead.instagram && <span title="Instagram"><Instagram className="w-3.5 h-3.5 text-pink-400" /></span>}
         </div>
       </td>
       <td>

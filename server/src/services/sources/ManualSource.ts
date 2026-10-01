@@ -1,6 +1,6 @@
 import type { LeadSource, LeadSourceResult } from '@lie/shared';
-import { normalizeName, normalizeEmail, normalizePhone, normalizeCountry } from '../utils/normalizeName';
-import { normalizeUrl } from '../utils/normalizeUrl';
+import { normalizeName, normalizeEmail, normalizePhone, normalizeCountry } from '../../utils/normalizeName';
+import { normalizeUrl } from '../../utils/normalizeUrl';
 
 /**
  * ManualSource — handles single lead creation from form input.

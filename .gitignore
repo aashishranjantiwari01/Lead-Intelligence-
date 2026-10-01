@@ -8,9 +8,10 @@ Thumbs.db
 !.env.example
 *.log
 logs/
-data/*.db
-data/*.db-journal
-data/*.db-wal
-data/*.db-shm
+# SQLite runtime files — excluded at any depth (e.g. server/data/)
+**/data/*.db
+**/data/*.db-journal
+**/data/*.db-wal
+**/data/*.db-shm
 coverage/
 .nyc_output/

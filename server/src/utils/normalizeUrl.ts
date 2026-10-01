@@ -27,10 +27,11 @@ export function normalizeUrl(rawUrl: string | null | undefined): string | null {
   const trimmed = rawUrl.trim();
   if (!trimmed) return null;
 
-  // Add scheme if missing
+  // Add scheme if missing — track whether original had an explicit scheme
+  const hadExplicitScheme = /^https?:\/\//i.test(trimmed);
   let withScheme = trimmed;
-  if (!/^https?:\/\//i.test(withScheme)) {
-    withScheme = `https://${withScheme}`;
+  if (!hadExplicitScheme) {
+    withScheme = `https://${trimmed}`;
   }
 
   try {
@@ -44,8 +45,8 @@ export function normalizeUrl(rawUrl: string | null | undefined): string | null {
     // Lowercase hostname
     parsed.hostname = parsed.hostname.toLowerCase();
 
-    // Force https
-    parsed.protocol = 'https:';
+    // Preserve original protocol — do NOT upgrade http → https
+    // (The auditor needs to detect whether the site actually uses HTTPS)
 
     // Remove trailing slash from path if it's just the root
     let path = parsed.pathname;
